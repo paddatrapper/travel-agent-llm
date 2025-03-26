@@ -10,6 +10,12 @@ langchain-google-genai = "*"
 dotenv = "*"
 
 [dev-packages]
+pylint = "*"
+black = "*"
+mypy = "*"
+autoflake = "*"
+autoimport = "*"
+isort = "*"
 
 [requires]
 python_version = "3.11"
