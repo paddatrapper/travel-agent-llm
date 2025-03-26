@@ -1,38 +1,38 @@
 import os
 from langgraph.graph import StateGraph, END
+from langgraph.graph.state import CompiledStateGraph
+from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
 
-from .agent import PlannerState
+from .agent import PlannerState, Agent
 
-def input_city(state: PlannerState) -> PlannerState:
-    print("Please enter the city you want to visit for your day trip:")
-    user_message = input("Your destination: ")
-    return {
-        **state,
-        "city": user_message,
-        "messages": state["messages"] + [HumanMessage(content=user_message)],
+
+def run_travel_planner(workflow: CompiledStateGraph, user_request: str):
+    print(f"Initial Request: {user_request}")
+    state = {
+        "messages": [HumanMessage(content=user_request)],
+        "city": "",
+        "interests": [],
+        "itinerary": "",
     }
 
-def input_interests(state: PlannerState) -> PlannerState:
-    print("Please enter your interests:")
-    user_message = input("Your interests: ")
-    return {
-        **state,
-        "interests": [interest.strip() for interest in user_message.split(",")],
-        "messages": state["messages"] + [HumanMessage(content=user_message)],
-    }
+    for _ in workflow.stream(state):
+        pass
 
-def create_itinerary(llm: ChatGoogleGenerativeAI, prompt: ChatPromptTemplate, state: PlannerState) -> PlannerState:
-    print(f"Creating an itinerary for {state['city']} based on your interests: {', '.join(state['interests'])}...")
-    response = llm.invoke(prompt.format_messsages(city=state['city'], interests=", ".join(state['interests'])))
-    print(response.content)
-    return {
-        **state,
-        "messages": state["messages"] + [AIMessage(content=response.content)],
-        "itinerary": response.content,
-    }
+def compile_workflow(agent: Agent) -> CompiledStateGraph:
+    workflow = StateGraph(PlannerState)
+    workflow.add_node("input_city", agent.input_city)
+    workflow.add_node("input_interests", agent.input_interests)
+    workflow.add_node("create_itinerary", agent.create_itinerary)
+    workflow.set_entry_point("input_city")
+
+    workflow.add_edge("input_city", "input_interests")
+    workflow.add_edge("input_interests", "create_itinerary")
+    workflow.add_edge("create_itinerary", END)
+
+    return workflow.compile()
 
 if __name__ == "__main__":
     load_dotenv()
@@ -43,15 +43,8 @@ if __name__ == "__main__":
         ("system", "You are a helpful travel assistant. Create a day trip itinerary for {city} based on the user's interests: {interests}. Provide a brief, bulleted itinerary."),
         ("human", "Create an itinerary for my day trip."),
     ])
-
-    workflow = StateGraph(PlannerState)
-    workflow.add_node("input_city", input_city)
-    workflow.add_node("input_interests", input_interests)
-    workflow.add_node("create_itinerary", create_itinerary)
-    workflow.set_entry_point("input_city")
-
-    workflow.add_edge("input_city", "input_interests")
-    workflow.add_edge("input_interests", "create_itinerary")
-    workflow.add_edge("create_itinerary", END)
-
-    app = workflow.compile()
+    
+    agent = Agent(llm, itinerary_prompt)
+    workflow = compile_workflow(agent)
+    user_request = "I want to plan a day trip."
+    run_travel_planner(workflow, user_request)
